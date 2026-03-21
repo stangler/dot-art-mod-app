@@ -1,0 +1,18 @@
+# Gradle
+.gradle/
+build/
+out/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.code-workspace
+
+# NeoForge 生成ファイル
+runs/
+.cache/
+
+# OS
+.DS_Store
+Thumbs.db

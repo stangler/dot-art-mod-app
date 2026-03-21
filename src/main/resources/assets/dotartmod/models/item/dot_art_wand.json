@@ -1,0 +1,6 @@
+{
+  "parent": "item/handheld",
+  "textures": {
+    "layer0": "dotartmod:item/dot_art_wand"
+  }
+}
