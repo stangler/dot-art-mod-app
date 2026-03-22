@@ -2,58 +2,46 @@ package com.dotartmod.server;
 
 import com.dotartmod.DotArtMod;
 import com.dotartmod.network.PlaceBlocksPacket;
+import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.item.BlockItem;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
-import java.util.List;
-
-/**
- * サーバー側でのブロック設置処理。
- *
- * クライアントから PlaceBlocksPacket を受け取り、
- * プレイヤーの権限・インベントリを確認した上でブロックを設置する。
- *
- * ＜サバイバルモードの挙動＞
- *   - 手持ちのアイテムを消費する
- *   - クリエイティブモードでは消費しない
- */
 public class ServerPlaceHandler {
 
     public static void handlePlaceBlocks(PlaceBlocksPacket packet, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            if (!(context.player() instanceof ServerPlayer player)) return;
 
-            ServerLevel level  = player.serverLevel();
-            List<BlockPos> positions = packet.positions();
+        if (!(context.player() instanceof ServerPlayer player))
+            return;
 
-            int placed = 0;
-            for (BlockPos pos : positions) {
-                // すでにブロックがある場所はスキップ
-                if (!level.getBlockState(pos).canBeReplaced()) continue;
+        ServerLevel level = player.serverLevel();
 
-                // 手持ちのアイテムを確認
-                ItemStack heldItem = player.getMainHandItem();
-                if (!(heldItem.getItem() instanceof BlockItem blockItem)) continue;
+        int placed = 0;
 
-                // ブロックを設置
-                BlockState state = blockItem.getBlock().defaultBlockState();
-                level.setBlock(pos, state, 3);
+        for (Pair<BlockPos, ResourceLocation> entry : packet.entries()) {
 
-                // サバイバルモードではアイテムを消費
-                if (!player.isCreative()) {
-                    heldItem.shrink(1);
-                    if (heldItem.isEmpty()) break; // インベントリが空になったら終了
-                }
-                placed++;
-            }
+            BlockPos pos = entry.getFirst();
+            ResourceLocation blockId = entry.getSecond();
 
-            DotArtMod.LOGGER.info("[DotArt] {} ブロックを設置しました (player: {})",
-                    placed, player.getName().getString());
-        });
+            if (!level.getBlockState(pos).canBeReplaced())
+                continue;
+
+            Block block = BuiltInRegistries.BLOCK.get(blockId);
+            if (block == null)
+                continue;
+
+            BlockState state = block.defaultBlockState();
+            level.setBlock(pos, state, 3);
+
+            placed++;
+        }
+
+        DotArtMod.LOGGER.info("[DotArt] {} blocks placed by {}",
+                placed, player.getName().getString());
     }
 }
