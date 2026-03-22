@@ -23,6 +23,8 @@ import java.util.List;
 
 public class DotArtScreen extends Screen {
 
+    private static final int PACKET_CHUNK_SIZE = 512;
+
     private EditBox pathInput;
     private Button loadBtn;
     private Button placeBtn;
@@ -41,19 +43,16 @@ public class DotArtScreen extends Screen {
     protected void init() {
         int centerX = this.width / 2;
 
-        // 入力欄
         pathInput = new EditBox(this.font, centerX - 150, 40, 300, 20, Component.literal("path"));
-        pathInput.setMaxLength(512); // ★重要：長いパス対応
+        pathInput.setMaxLength(512);
         this.addRenderableWidget(pathInput);
 
-        // 読み込み
         loadBtn = Button.builder(Component.literal("画像読み込み"), b -> loadImage())
                 .pos(centerX - 150, 70)
                 .size(140, 20)
                 .build();
         this.addRenderableWidget(loadBtn);
 
-        // 設置
         placeBtn = Button.builder(Component.literal("設置"), b -> sendPlacePacket())
                 .pos(centerX + 10, 70)
                 .size(140, 20)
@@ -61,7 +60,6 @@ public class DotArtScreen extends Screen {
         placeBtn.active = false;
         this.addRenderableWidget(placeBtn);
 
-        // サイズ
         sizeSlider = new SizeSlider(centerX - 150, 100, 300, 20);
         this.addRenderableWidget(sizeSlider);
     }
@@ -75,9 +73,8 @@ public class DotArtScreen extends Screen {
 
         super.render(g, mouseX, mouseY, partialTick);
 
-        // プレビュー
         if (blockGrid != null) {
-            int previewSize = 150; // ★見やすくした
+            int previewSize = 150;
             int px = this.width - previewSize - 20;
             int py = 40;
 
@@ -100,8 +97,6 @@ public class DotArtScreen extends Screen {
     private void loadImage() {
         try {
             String path = pathInput.getValue();
-            System.out.println("Loading: " + path); // ★デバッグ
-
             File file = new File(path);
 
             if (!file.exists()) {
@@ -152,7 +147,7 @@ public class DotArtScreen extends Screen {
         if (mc.player == null)
             return;
 
-        int size = artSize;
+        int size = blockGrid.length;
 
         BlockPos playerPos = mc.player.blockPosition();
         Direction facing = mc.player.getDirection();
@@ -174,9 +169,19 @@ public class DotArtScreen extends Screen {
             }
         }
 
-        PacketDistributor.sendToServer(new PlaceBlocksPacket(entries));
+        int total = entries.size();
+        int packetCount = 0;
 
-        status = "送信完了: " + entries.size() + "ブロック";
+        for (int i = 0; i < total; i += PACKET_CHUNK_SIZE) {
+
+            int end = Math.min(i + PACKET_CHUNK_SIZE, total);
+            List<Pair<BlockPos, ResourceLocation>> chunk = new ArrayList<>(entries.subList(i, end));
+
+            PacketDistributor.sendToServer(new PlaceBlocksPacket(chunk));
+            packetCount++;
+        }
+
+        status = "送信完了: " + total + "ブロック (" + packetCount + "パケット)";
         placeBtn.active = false;
     }
 
@@ -185,7 +190,6 @@ public class DotArtScreen extends Screen {
         return false;
     }
 
-    // ===== サイズスライダー =====
     private class SizeSlider extends AbstractSliderButton {
 
         public SizeSlider(int x, int y, int w, int h) {
