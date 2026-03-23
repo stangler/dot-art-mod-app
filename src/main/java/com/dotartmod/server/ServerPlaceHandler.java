@@ -12,36 +12,31 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
+import java.util.ArrayDeque;
+import java.util.Queue;
+
 public class ServerPlaceHandler {
 
     public static void handlePlaceBlocks(PlaceBlocksPacket packet, IPayloadContext context) {
-
         if (!(context.player() instanceof ServerPlayer player))
             return;
 
-        ServerLevel level = player.serverLevel();
+        Queue<Pair<BlockPos, ResourceLocation>> queue = new ArrayDeque<>(packet.entries());
 
-        int placed = 0;
+        ServerPlaceExecutor.enqueue(player.serverLevel(), queue);
 
-        for (Pair<BlockPos, ResourceLocation> entry : packet.entries()) {
+        DotArtMod.LOGGER.info("[DotArt] queued {} blocks", queue.size());
+    }
 
-            BlockPos pos = entry.getFirst();
-            ResourceLocation blockId = entry.getSecond();
+    static void place(ServerLevel level, BlockPos pos, ResourceLocation blockId) {
+        if (!level.getBlockState(pos).canBeReplaced())
+            return;
 
-            if (!level.getBlockState(pos).canBeReplaced())
-                continue;
+        Block block = BuiltInRegistries.BLOCK.get(blockId);
+        if (block == null)
+            return;
 
-            Block block = BuiltInRegistries.BLOCK.get(blockId);
-            if (block == null)
-                continue;
-
-            BlockState state = block.defaultBlockState();
-            level.setBlock(pos, state, 3);
-
-            placed++;
-        }
-
-        DotArtMod.LOGGER.info("[DotArt] {} blocks placed by {}",
-                placed, player.getName().getString());
+        BlockState state = block.defaultBlockState();
+        level.setBlock(pos, state, 3);
     }
 }

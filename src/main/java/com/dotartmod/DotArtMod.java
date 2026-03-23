@@ -12,14 +12,11 @@ import org.slf4j.Logger;
 public class DotArtMod {
 
     public static final String MOD_ID = "dotartmod";
-    public static final Logger LOGGER  = LogUtils.getLogger();
+    public static final Logger LOGGER = LogUtils.getLogger();
 
     public DotArtMod(IEventBus modEventBus, ModContainer modContainer) {
-        // アイテム登録
         ModItems.ITEMS.register(modEventBus);
-        // ネットワークパケット登録
         ModNetwork.register(modEventBus);
-
         LOGGER.info("[DotArt Mod] 起動しました！");
     }
 }
