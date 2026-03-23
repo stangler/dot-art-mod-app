@@ -1,5 +1,6 @@
 package com.dotartmod.client.screen;
 
+import com.dotartmod.client.ClientPlaceQueue;
 import com.dotartmod.network.PlaceBlocksPacket;
 import com.dotartmod.util.BlockPalette;
 import com.mojang.datafixers.util.Pair;
@@ -10,10 +11,8 @@ import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.components.AbstractSliderButton;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -34,6 +33,9 @@ public class DotArtScreen extends Screen {
     private int artSize = 32;
 
     private String status = "画像パスを入力してください";
+
+    /** 段階送信用キュー */
+    private ClientPlaceQueue placeQueue;
 
     public DotArtScreen() {
         super(Component.literal("DotArt Generator"));
@@ -73,6 +75,7 @@ public class DotArtScreen extends Screen {
 
         super.render(g, mouseX, mouseY, partialTick);
 
+        // プレビュー描画
         if (blockGrid != null) {
             int previewSize = 150;
             int px = this.width - previewSize - 20;
@@ -92,13 +95,22 @@ public class DotArtScreen extends Screen {
                 }
             }
         }
+
+        // 段階送信処理
+        if (placeQueue != null) {
+            placeQueue.tick();
+
+            if (placeQueue.isFinished()) {
+                placeQueue = null;
+                placeBtn.active = true;
+                status = "設置完了";
+            }
+        }
     }
 
     private void loadImage() {
         try {
-            String path = pathInput.getValue();
-            File file = new File(path);
-
+            File file = new File(pathInput.getValue());
             if (!file.exists()) {
                 status = "ファイルが存在しません";
                 return;
@@ -115,17 +127,14 @@ public class DotArtScreen extends Screen {
 
             for (int y = 0; y < size; y++) {
                 for (int x = 0; x < size; x++) {
-
                     int px = x * img.getWidth() / size;
                     int py = y * img.getHeight() / size;
-
                     int rgb = img.getRGB(px, py);
 
-                    int r = (rgb >> 16) & 0xFF;
-                    int g = (rgb >> 8) & 0xFF;
-                    int b = rgb & 0xFF;
-
-                    blockGrid[y][x] = BlockPalette.findNearest(r, g, b);
+                    blockGrid[y][x] = BlockPalette.findNearest(
+                            (rgb >> 16) & 0xFF,
+                            (rgb >> 8) & 0xFF,
+                            rgb & 0xFF);
                 }
             }
 
@@ -134,12 +143,10 @@ public class DotArtScreen extends Screen {
 
         } catch (Exception e) {
             status = "エラー: " + e.getMessage();
-            e.printStackTrace();
         }
     }
 
     private void sendPlacePacket() {
-
         if (blockGrid == null)
             return;
 
@@ -148,41 +155,31 @@ public class DotArtScreen extends Screen {
             return;
 
         int size = blockGrid.length;
-
-        BlockPos playerPos = mc.player.blockPosition();
-        Direction facing = mc.player.getDirection();
-        Direction right = facing.getClockWise();
-
-        BlockPos origin = playerPos
-                .relative(facing, 3)
-                .relative(right, -(size / 2));
+        BlockPos base = mc.player.blockPosition()
+                .relative(mc.player.getDirection(), 3)
+                .relative(mc.player.getDirection().getClockWise(), -(size / 2));
 
         List<Pair<BlockPos, ResourceLocation>> entries = new ArrayList<>();
 
         for (int y = 0; y < size; y++) {
             for (int x = 0; x < size; x++) {
-
-                BlockPalette.BlockColor bc = blockGrid[size - 1 - y][x];
-                BlockPos pos = origin.relative(right, x).above(y);
-
-                entries.add(Pair.of(pos, bc.blockId()));
+                entries.add(Pair.of(
+                        base.relative(mc.player.getDirection().getClockWise(), x).above(y),
+                        blockGrid[size - 1 - y][x].blockId()));
             }
         }
 
-        int total = entries.size();
-        int packetCount = 0;
-
-        for (int i = 0; i < total; i += PACKET_CHUNK_SIZE) {
-
-            int end = Math.min(i + PACKET_CHUNK_SIZE, total);
-            List<Pair<BlockPos, ResourceLocation>> chunk = new ArrayList<>(entries.subList(i, end));
-
-            PacketDistributor.sendToServer(new PlaceBlocksPacket(chunk));
-            packetCount++;
+        List<PlaceBlocksPacket> packets = new ArrayList<>();
+        for (int i = 0; i < entries.size(); i += PACKET_CHUNK_SIZE) {
+            packets.add(new PlaceBlocksPacket(
+                    entries.subList(i, Math.min(i + PACKET_CHUNK_SIZE, entries.size()))));
         }
 
-        status = "送信完了: " + total + "ブロック (" + packetCount + "パケット)";
+        placeQueue = new ClientPlaceQueue();
+        placeQueue.enqueue(packets);
+
         placeBtn.active = false;
+        status = "設置中... (" + entries.size() + "ブロック)";
     }
 
     @Override
@@ -191,7 +188,6 @@ public class DotArtScreen extends Screen {
     }
 
     private class SizeSlider extends AbstractSliderButton {
-
         public SizeSlider(int x, int y, int w, int h) {
             super(x, y, w, h, Component.literal("Size: 32"), 0.33);
             updateMessage();
@@ -199,9 +195,8 @@ public class DotArtScreen extends Screen {
 
         @Override
         protected void updateMessage() {
-            int size = 16 + (int) (value * 48);
-            artSize = size;
-            setMessage(Component.literal("Size: " + size));
+            artSize = 16 + (int) (value * 48);
+            setMessage(Component.literal("Size: " + artSize));
         }
 
         @Override
