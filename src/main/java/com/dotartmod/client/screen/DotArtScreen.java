@@ -31,6 +31,16 @@ public class DotArtScreen extends Screen {
     private ResourceLocation[][] blockGrid;
     private int[][] colorPreview;
 
+    // 設置方向モード
+    private enum PlacementMode {
+        WALL, FLOOR
+    }
+
+    private PlacementMode placementMode = PlacementMode.WALL;
+
+    // モード切り替えボタン
+    private Button modeToggleButton;
+
     public DotArtScreen() {
         super(Component.literal("ドットアート生成"));
     }
@@ -63,6 +73,20 @@ public class DotArtScreen extends Screen {
             if (blockGrid != null)
                 sendPlacementPackets();
         }).bounds(this.width / 2 - 100, 105, 200, 20).build());
+
+        // モード切り替えボタン
+        this.modeToggleButton = Button.builder(
+                Component.literal("Mode: " + placementMode.name()),
+                btn -> {
+                    placementMode = (placementMode == PlacementMode.WALL)
+                            ? PlacementMode.FLOOR
+                            : PlacementMode.WALL;
+                    btn.setMessage(Component.literal("Mode: " + placementMode.name()));
+                })
+                .pos(this.width / 2 - 100, 130)
+                .size(100, 20)
+                .build();
+        this.addRenderableWidget(modeToggleButton);
     }
 
     private void loadAndProcess(String path) {
@@ -106,10 +130,25 @@ public class DotArtScreen extends Screen {
         net.minecraft.core.BlockPos startPos = this.minecraft.player.blockPosition()
                 .relative(this.minecraft.player.getDirection(), 5);
 
+        // 視線方向（HorizontalDirection）
+        net.minecraft.core.Direction lookDir = this.minecraft.player.getDirection();
+
         for (int y = 0; y < artSize; y++) {
             for (int x = 0; x < artSize; x++) {
                 if (blockGrid[y][x] != null) {
-                    allBlocks.add(Pair.of(startPos.offset(x, artSize - 1 - y, 0), blockGrid[y][x]));
+                    net.minecraft.core.BlockPos pos;
+                    if (placementMode == PlacementMode.WALL) {
+                        // 壁モード（既存の動作）
+                        // x → 右方向、y → 上方向（高さ）
+                        pos = startPos.offset(x, artSize - 1 - y, 0);
+                    } else {
+                        // 床モード（新規）
+                        // x → 右方向、y → 前方向（視線方向）
+                        pos = startPos
+                                .offset(x, 0, 0) // 右方向
+                                .relative(lookDir, y); // 前方向
+                    }
+                    allBlocks.add(Pair.of(pos, blockGrid[y][x]));
                 }
             }
         }
@@ -136,7 +175,7 @@ public class DotArtScreen extends Screen {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         if (colorPreview != null) {
             int startX = this.width / 2 - (artSize / 2);
-            int startY = 130;
+            int startY = 160; // モードボタンの下にプレビューを表示
             for (int y = 0; y < artSize; y++) {
                 for (int x = 0; x < artSize; x++) {
                     if (colorPreview[y][x] != 0) {
