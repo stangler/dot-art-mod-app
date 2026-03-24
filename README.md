@@ -283,5 +283,3 @@ src/main/java/com/dotartmod/
 
 
 MIT License
-
-```
