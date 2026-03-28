@@ -31,6 +31,10 @@ public class DotArtScreen extends Screen {
     private ResourceLocation[][] blockGrid;
     private int[][] colorPreview;
 
+    // サイズ上限: 16〜128
+    private static final int MIN_SIZE = 16;
+    private static final int MAX_SIZE = 128;
+
     // 設置方向モード
     private enum PlacementMode {
         WALL, FLOOR
@@ -52,7 +56,7 @@ public class DotArtScreen extends Screen {
         this.addRenderableWidget(this.pathEdit);
 
         this.sizeSlider = new AbstractSliderButton(this.width / 2 - 100, 55, 200, 20,
-                Component.literal("サイズ: " + artSize), (double) (artSize - 16) / 48.0) {
+                Component.literal("サイズ: " + artSize), (double) (artSize - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)) {
             @Override
             protected void updateMessage() {
                 this.setMessage(Component.literal("サイズ: " + artSize));
@@ -60,7 +64,7 @@ public class DotArtScreen extends Screen {
 
             @Override
             protected void applyValue() {
-                artSize = Mth.clamp((int) (this.value * 48.0 + 16.0), 16, 64);
+                artSize = Mth.clamp((int) (this.value * (MAX_SIZE - MIN_SIZE) + MIN_SIZE), MIN_SIZE, MAX_SIZE);
             }
         };
         this.addRenderableWidget(this.sizeSlider);
@@ -176,10 +180,15 @@ public class DotArtScreen extends Screen {
         if (colorPreview != null) {
             int startX = this.width / 2 - (artSize / 2);
             int startY = 160; // モードボタンの下にプレビューを表示
+            // プレビューのスケール調整（128×128でも画面内に収める）
+            int previewScale = Math.max(1, (this.width / MAX_SIZE) / 2);
             for (int y = 0; y < artSize; y++) {
                 for (int x = 0; x < artSize; x++) {
                     if (colorPreview[y][x] != 0) {
-                        guiGraphics.fill(startX + x, startY + y, startX + x + 1, startY + y + 1, colorPreview[y][x]);
+                        guiGraphics.fill(
+                                startX + x * previewScale, startY + y * previewScale,
+                                startX + (x + 1) * previewScale, startY + (y + 1) * previewScale,
+                                colorPreview[y][x]);
                     }
                 }
             }
