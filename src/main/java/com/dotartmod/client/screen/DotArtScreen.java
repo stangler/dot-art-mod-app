@@ -1,6 +1,5 @@
 package com.dotartmod.client.screen;
 
-import com.dotartmod.client.ClientPlaceQueue;
 import com.dotartmod.network.PlaceBlocksPacket;
 import com.dotartmod.util.BlockPalette;
 import com.dotartmod.util.DitheringEngine;
@@ -44,6 +43,14 @@ public class DotArtScreen extends Screen {
 
     // モード切り替えボタン
     private Button modeToggleButton;
+
+    // 背景色を使うかどうか（デフォルト: true）
+    private boolean useBackgroundColor = true;
+    private Button backgroundToggleButton;
+
+    // 背景色（ARGB）
+    private int backgroundColor = 0xFF808080; // デフォルト: グレー
+    private Button backgroundColorButton;
 
     public DotArtScreen() {
         super(Component.literal("ドットアート生成"));
@@ -91,6 +98,38 @@ public class DotArtScreen extends Screen {
                 .size(100, 20)
                 .build();
         this.addRenderableWidget(modeToggleButton);
+
+        // 背景色トグルボタン
+        this.backgroundToggleButton = Button.builder(
+                Component.literal("背景色: " + (useBackgroundColor ? "ON" : "OFF")),
+                btn -> {
+                    useBackgroundColor = !useBackgroundColor;
+                    btn.setMessage(Component.literal("背景色: " + (useBackgroundColor ? "ON" : "OFF")));
+                })
+                .pos(this.width / 2 + 5, 130) // モードボタンの右隣
+                .size(95, 20)
+                .build();
+        this.addRenderableWidget(backgroundToggleButton);
+
+        // 背景色選択ボタン（簡易カラーピッカー）
+        this.backgroundColorButton = Button.builder(
+                Component.literal("背景色選択"),
+                btn -> {
+                    // グレー ↔ 黒 ↔ 白 を切り替える
+                    if (backgroundColor == 0xFF808080) {
+                        backgroundColor = 0xFF000000; // 黒
+                    } else if (backgroundColor == 0xFF000000) {
+                        backgroundColor = 0xFFFFFFFF; // 白
+                    } else {
+                        backgroundColor = 0xFF808080; // グレー
+                    }
+                    // プレビューを再描画
+                    this.rebuildWidgets();
+                })
+                .pos(this.width / 2 - 100, 155) // 背景色トグルの下
+                .size(200, 20)
+                .build();
+        this.addRenderableWidget(backgroundColorButton);
     }
 
     private void loadAndProcess(String path) {
@@ -139,26 +178,33 @@ public class DotArtScreen extends Screen {
 
         for (int y = 0; y < artSize; y++) {
             for (int x = 0; x < artSize; x++) {
+                net.minecraft.core.BlockPos pos;
+                if (placementMode == PlacementMode.WALL) {
+                    // 壁モード（既存の動作）
+                    // x → 右方向、y → 上方向（高さ）
+                    pos = startPos.offset(x, artSize - 1 - y, 0);
+                } else {
+                    // 床モード（新規）
+                    // x → 右方向、y → 前方向（視線方向）
+                    pos = startPos
+                            .offset(x, 0, 0) // 右方向
+                            .relative(lookDir, y); // 前方向
+                }
+
+                // 背景ブロック用のエントリを追加（useBackgroundColor が true の場合）
+                if (useBackgroundColor) {
+                    allBlocks.add(Pair.of(pos, null)); // blockId = null で背景ブロックを示す
+                }
+
+                // ドットブロック用のエントリを追加
                 if (blockGrid[y][x] != null) {
-                    net.minecraft.core.BlockPos pos;
-                    if (placementMode == PlacementMode.WALL) {
-                        // 壁モード（既存の動作）
-                        // x → 右方向、y → 上方向（高さ）
-                        pos = startPos.offset(x, artSize - 1 - y, 0);
-                    } else {
-                        // 床モード（新規）
-                        // x → 右方向、y → 前方向（視線方向）
-                        pos = startPos
-                                .offset(x, 0, 0) // 右方向
-                                .relative(lookDir, y); // 前方向
-                    }
                     allBlocks.add(Pair.of(pos, blockGrid[y][x]));
                 }
             }
         }
 
         if (!allBlocks.isEmpty()) {
-            // パケット分割送信：200個ずつ小分けにする
+            // パケット分割送信：200개ずつ小分けにする
             int batchSize = 200;
             for (int i = 0; i < allBlocks.size(); i += batchSize) {
                 int end = Math.min(i + batchSize, allBlocks.size());
@@ -167,7 +213,8 @@ public class DotArtScreen extends Screen {
 
                 // サーバー接続を通じてパケットを送信
                 if (Minecraft.getInstance().getConnection() != null) {
-                    Minecraft.getInstance().getConnection().send(new PlaceBlocksPacket(subList));
+                    Minecraft.getInstance().getConnection()
+                            .send(new PlaceBlocksPacket(subList, useBackgroundColor, backgroundColor));
                 }
             }
             this.onClose();
@@ -184,6 +231,13 @@ public class DotArtScreen extends Screen {
             int previewScale = Math.max(1, (this.width / MAX_SIZE) / 2);
             for (int y = 0; y < artSize; y++) {
                 for (int x = 0; x < artSize; x++) {
+                    // 背景色ありの場合は背景ブロックを描画
+                    if (useBackgroundColor) {
+                        guiGraphics.fill(
+                                startX + x * previewScale, startY + y * previewScale,
+                                startX + (x + 1) * previewScale, startY + (y + 1) * previewScale,
+                                backgroundColor); // ユーザーが選んだ背景色
+                    }
                     if (colorPreview[y][x] != 0) {
                         guiGraphics.fill(
                                 startX + x * previewScale, startY + y * previewScale,
