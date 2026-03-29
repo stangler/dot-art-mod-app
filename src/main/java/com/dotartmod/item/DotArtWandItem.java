@@ -29,14 +29,20 @@ public class DotArtWandItem extends Item {
 
     @OnlyIn(Dist.CLIENT)
     private void openGui() {
-        net.minecraft.client.Minecraft.getInstance()
-            .setScreen(new com.dotartmod.client.screen.DotArtScreen());
+        var mc = net.minecraft.client.Minecraft.getInstance();
+
+        // 既に同じ画面が開いている場合は再生成しない
+        if (mc.screen instanceof com.dotartmod.client.screen.DotArtScreen) {
+            return;
+        }
+
+        mc.setScreen(new com.dotartmod.client.screen.DotArtScreen());
     }
 
     @Override
     @OnlyIn(Dist.CLIENT)
     public void appendHoverText(ItemStack stack, TooltipContext context,
-                                List<Component> tooltip, TooltipFlag flag) {
+            List<Component> tooltip, TooltipFlag flag) {
         tooltip.add(Component.literal("§a右クリック§r でドットアート画面を開く"));
         tooltip.add(Component.literal("§7画像を選ぶだけで自動でブロックを設置！"));
         tooltip.add(Component.literal("§7サバイバルでも使えます"));
