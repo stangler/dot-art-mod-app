@@ -1,5 +1,6 @@
 package com.dotartmod.client.screen;
 
+import com.dotartmod.network.GenerateMapPacket;
 import com.dotartmod.network.PlaceBlocksPacket;
 import com.dotartmod.util.BlockPalette;
 import com.dotartmod.util.DitheringEngine;
@@ -30,26 +31,21 @@ public class DotArtScreen extends Screen {
     private ResourceLocation[][] blockGrid;
     private int[][] colorPreview;
 
-    // サイズ上限: 16〜128
     private static final int MIN_SIZE = 16;
     private static final int MAX_SIZE = 128;
 
-    // 設置方向モード
     private enum PlacementMode {
-        WALL, FLOOR
+        WALL, FLOOR, MAP
     }
 
-    private PlacementMode placementMode = PlacementMode.WALL;
+    private static PlacementMode placementMode = PlacementMode.WALL;
 
-    // モード切り替えボタン
     private Button modeToggleButton;
 
-    // 背景色を使うかどうか（デフォルト: true）
     private boolean useBackgroundColor = true;
     private Button backgroundToggleButton;
 
-    // 背景色（ARGB）
-    private int backgroundColor = 0xFF808080; // デフォルト: グレー
+    private int backgroundColor = 0xFF808080;
     private Button backgroundColorButton;
 
     public DotArtScreen() {
@@ -77,21 +73,24 @@ public class DotArtScreen extends Screen {
         this.addRenderableWidget(this.sizeSlider);
 
         this.addRenderableWidget(Button.builder(Component.literal("読み込み & プレビュー"), button -> {
+            System.out.println("[DotArt] Load button clicked");
             loadAndProcess(pathEdit.getValue());
         }).bounds(this.width / 2 - 100, 80, 200, 20).build());
 
         this.addRenderableWidget(Button.builder(Component.literal("設置開始"), button -> {
-            if (blockGrid != null)
-                sendPlacementPackets();
+            System.out.println("[DotArt] Start placement clicked");
+            System.out.println("[DotArt] blockGrid = " + (blockGrid != null));
+            sendPlacementPackets();
         }).bounds(this.width / 2 - 100, 105, 200, 20).build());
 
-        // モード切り替えボタン
         this.modeToggleButton = Button.builder(
                 Component.literal("Mode: " + placementMode.name()),
                 btn -> {
-                    placementMode = (placementMode == PlacementMode.WALL)
-                            ? PlacementMode.FLOOR
-                            : PlacementMode.WALL;
+                    placementMode = switch (placementMode) {
+                        case WALL -> PlacementMode.FLOOR;
+                        case FLOOR -> PlacementMode.MAP;
+                        case MAP -> PlacementMode.WALL;
+                    };
                     btn.setMessage(Component.literal("Mode: " + placementMode.name()));
                 })
                 .pos(this.width / 2 - 100, 130)
@@ -99,34 +98,29 @@ public class DotArtScreen extends Screen {
                 .build();
         this.addRenderableWidget(modeToggleButton);
 
-        // 背景色トグルボタン
         this.backgroundToggleButton = Button.builder(
                 Component.literal("背景色: " + (useBackgroundColor ? "ON" : "OFF")),
                 btn -> {
                     useBackgroundColor = !useBackgroundColor;
                     btn.setMessage(Component.literal("背景色: " + (useBackgroundColor ? "ON" : "OFF")));
                 })
-                .pos(this.width / 2 + 5, 130) // モードボタンの右隣
+                .pos(this.width / 2 + 5, 130)
                 .size(95, 20)
                 .build();
         this.addRenderableWidget(backgroundToggleButton);
 
-        // 背景色選択ボタン（簡易カラーピッカー）
         this.backgroundColorButton = Button.builder(
                 Component.literal("背景色選択"),
                 btn -> {
-                    // グレー ↔ 黒 ↔ 白 を切り替える
                     if (backgroundColor == 0xFF808080) {
-                        backgroundColor = 0xFF000000; // 黒
+                        backgroundColor = 0xFF000000;
                     } else if (backgroundColor == 0xFF000000) {
-                        backgroundColor = 0xFFFFFFFF; // 白
+                        backgroundColor = 0xFFFFFFFF;
                     } else {
-                        backgroundColor = 0xFF808080; // グレー
+                        backgroundColor = 0xFF808080;
                     }
-                    // プレビューを再描画
-                    this.rebuildWidgets();
                 })
-                .pos(this.width / 2 - 100, 155) // 背景色トグルの下
+                .pos(this.width / 2 - 100, 155)
                 .size(200, 20)
                 .build();
         this.addRenderableWidget(backgroundColorButton);
@@ -135,11 +129,16 @@ public class DotArtScreen extends Screen {
     private void loadAndProcess(String path) {
         try {
             File file = new File(path);
-            if (!file.exists())
+            if (!file.exists()) {
+                System.out.println("[DotArt] File not found");
                 return;
+            }
+
             BufferedImage original = ImageIO.read(file);
-            if (original == null)
+            if (original == null) {
+                System.out.println("[DotArt] Image load failed");
                 return;
+            }
 
             BufferedImage scaled = new BufferedImage(artSize, artSize, BufferedImage.TYPE_INT_ARGB);
             Graphics2D g = scaled.createGraphics();
@@ -163,40 +162,47 @@ public class DotArtScreen extends Screen {
                     }
                 }
             }
+
+            System.out.println("[DotArt] Image processed successfully");
+
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
     private void sendPlacementPackets() {
+        System.out.println("[DotArt] sendPlacementPackets called");
+        System.out.println("[DotArt] placementMode = " + placementMode);
+
+        if (placementMode == PlacementMode.MAP) {
+            System.out.println("[DotArt] MAP mode branch entered");
+            generateMapArt();
+            return;
+        }
+
+        if (blockGrid == null) {
+            System.out.println("[DotArt] blockGrid is null, abort");
+            return;
+        }
+
         List<Pair<net.minecraft.core.BlockPos, ResourceLocation>> allBlocks = new ArrayList<>();
         net.minecraft.core.BlockPos startPos = this.minecraft.player.blockPosition()
                 .relative(this.minecraft.player.getDirection(), 5);
 
-        // 視線方向（HorizontalDirection）
-        net.minecraft.core.Direction lookDir = this.minecraft.player.getDirection();
-
         for (int y = 0; y < artSize; y++) {
             for (int x = 0; x < artSize; x++) {
                 net.minecraft.core.BlockPos pos;
+
                 if (placementMode == PlacementMode.WALL) {
-                    // 壁モード（既存の動作）
-                    // x → 右方向、y → 上方向（高さ）
                     pos = startPos.offset(x, artSize - 1 - y, 0);
                 } else {
-                    // 床モード（新規）
-                    // x → 右方向、y → 前方向（視線方向）
-                    pos = startPos
-                            .offset(x, 0, 0) // 右方向
-                            .relative(lookDir, y); // 前方向
+                    pos = startPos.offset(x, 0, 0).relative(this.minecraft.player.getDirection(), y);
                 }
 
-                // 背景ブロック用のエントリを追加（useBackgroundColor が true の場合）
                 if (useBackgroundColor) {
-                    allBlocks.add(Pair.of(pos, null)); // blockId = null で背景ブロックを示す
+                    allBlocks.add(Pair.of(pos, null));
                 }
 
-                // ドットブロック用のエントリを追加
                 if (blockGrid[y][x] != null) {
                     allBlocks.add(Pair.of(pos, blockGrid[y][x]));
                 }
@@ -204,14 +210,12 @@ public class DotArtScreen extends Screen {
         }
 
         if (!allBlocks.isEmpty()) {
-            // パケット分割送信：200개ずつ小分けにする
             int batchSize = 200;
             for (int i = 0; i < allBlocks.size(); i += batchSize) {
                 int end = Math.min(i + batchSize, allBlocks.size());
                 List<Pair<net.minecraft.core.BlockPos, ResourceLocation>> subList = new ArrayList<>(
                         allBlocks.subList(i, end));
 
-                // サーバー接続を通じてパケットを送信
                 if (Minecraft.getInstance().getConnection() != null) {
                     Minecraft.getInstance().getConnection()
                             .send(new PlaceBlocksPacket(subList, useBackgroundColor, backgroundColor));
@@ -221,22 +225,87 @@ public class DotArtScreen extends Screen {
         }
     }
 
+    private void generateMapArt() {
+        System.out.println("[DotArt] generateMapArt called");
+
+        if (blockGrid == null) {
+            System.out.println("[DotArt] generateMapArt aborted: blockGrid is null");
+            return;
+        }
+
+        // ★ 修正：背景色ONのとき、背景色に最も近いブロックのマップカラーを事前に取得
+        byte bgColorByte = 0;
+        if (useBackgroundColor) {
+            ResourceLocation bgBlock = BlockPalette.getNearestBlock(backgroundColor);
+            if (bgBlock != null) {
+                bgColorByte = getMapColorFromBlock(bgBlock);
+                System.out.println("[DotArt] Background block: " + bgBlock + " → mapColor: " + bgColorByte);
+            }
+        }
+
+        byte[] colors = new byte[128 * 128];
+
+        for (int y = 0; y < 128; y++) {
+            for (int x = 0; x < 128; x++) {
+                int srcX = x * artSize / 128;
+                int srcY = y * artSize / 128;
+                ResourceLocation blockId = blockGrid[srcY][srcX];
+
+                byte color;
+                if (blockId != null) {
+                    // 不透明ピクセル：ブロックのマップカラーを使用
+                    color = getMapColorFromBlock(blockId);
+                } else if (useBackgroundColor) {
+                    // ★ 透明ピクセル＋背景色ON：背景色のマップカラーを使用
+                    color = bgColorByte;
+                } else {
+                    // 透明ピクセル＋背景色OFF：透明（0）
+                    color = 0;
+                }
+
+                colors[x + y * 128] = color;
+            }
+        }
+
+        System.out.println("[DotArt] Sending GenerateMapPacket to server");
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getConnection() != null) {
+            mc.getConnection().send(new GenerateMapPacket(colors));
+        }
+
+        this.onClose();
+    }
+
+    private byte getMapColorFromBlock(ResourceLocation blockId) {
+        var block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(blockId);
+        if (block == null)
+            return 0;
+        try {
+            int colorId = block.defaultMapColor().id;
+            if (colorId == 0)
+                return 0;
+            return (byte) (colorId * 4 + 2); // シェード2＝通常の明るさ
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
     @Override
     public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
         super.render(guiGraphics, mouseX, mouseY, partialTick);
         if (colorPreview != null) {
             int startX = this.width / 2 - (artSize / 2);
-            int startY = 160; // モードボタンの下にプレビューを表示
-            // プレビューのスケール調整（128×128でも画面内に収める）
+            int startY = 160;
             int previewScale = Math.max(1, (this.width / MAX_SIZE) / 2);
+
             for (int y = 0; y < artSize; y++) {
                 for (int x = 0; x < artSize; x++) {
-                    // 背景色ありの場合は背景ブロックを描画
                     if (useBackgroundColor) {
                         guiGraphics.fill(
                                 startX + x * previewScale, startY + y * previewScale,
                                 startX + (x + 1) * previewScale, startY + (y + 1) * previewScale,
-                                backgroundColor); // ユーザーが選んだ背景色
+                                backgroundColor);
                     }
                     if (colorPreview[y][x] != 0) {
                         guiGraphics.fill(
@@ -246,13 +315,9 @@ public class DotArtScreen extends Screen {
                     }
                 }
             }
+
             guiGraphics.drawCenteredString(this.font, "プレビュー表示中", this.width / 2, startY + artSize + 5, 0x00FF00);
         }
-    }
-
-    @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        super.renderBackground(guiGraphics, mouseX, mouseY, partialTick);
     }
 
     @Override
